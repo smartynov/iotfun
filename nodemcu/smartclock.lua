@@ -12,9 +12,9 @@ local dht_pin = 5 -- dht22 data pin
 
 -- software settings
 local timer_interval = 100 -- timer interval in ms
-local sync_interval = 50 -- sync time every n seconds
+local sync_interval = 90 -- sync time every n seconds
 local temp_interval = 3 -- update temperature/humidity/pressure every n seconds
-local send_interval = 60 -- send t/h/p to cloud every n seconds
+local send_interval = 60 -- send data to cloud every n seconds
 local draw_interval = 1 -- update display every second
 
 -- global variables
@@ -22,15 +22,15 @@ local timekeep = 0 -- holds time since last sync in ms
 local timestamp = 0 -- holds current time in epoch seconds
 local timezone = 0 -- tz offset
 local epoch = 0 -- holds epoch of last sync
-local next_sync = 0 -- epoch time of next time sync
-local next_temp = 0 -- epoch time of next temp/hum/press reading 
-local next_send = 0 -- epoch time of next temp/hum/press sending 
-local next_draw = 0 -- epoch time of next display update
+local next_sync = 5 -- epoch time of next time sync
+local next_temp = temp_interval -- epoch time of next temp/hum/press reading 
+local next_send = send_interval -- epoch time of next temp/hum/press sending 
+local next_draw = draw_interval -- epoch time of next display update
 local tmr_prev = 0
 local temperature = 0
 local humidity = 0
---local pressure = 0
---local temperature2 = 0
+local pressure = 0
+local temperature2 = 0
 local disp
 
 
@@ -40,9 +40,18 @@ local function sync_time()
   http.get("www.timeapi.org","/z/now?\\s", function(res)
     res = tonumber(res)
     if res ~= nil and res > 1444444444 then -- constant equals some past epoch
-      epoch = res
-      timekeep = 0
-      next_sync = epoch + sync_interval
+      local timediff = timestamp - res
+      if timediff > 1000 or timediff < -1000 then
+        epoch = res
+        timekeep = 0
+        next_sync = epoch + sync_interval
+      else
+        local url = "/update?key=KZ6YC9VGXFCABF06"
+          .. "&field1=" .. timediff
+        http.get("api.thingspeak.com", url, function(res)
+          --print("published:"..res)
+          end)
+      end
       --print("sync: epoch="..epoch)
     end
   end)
@@ -83,6 +92,10 @@ local function send_temp()
   local url = "/update?key=DQWUD59A3V9HXAYC"
     .. "&field1=" .. temp_int .. "." .. (temperature - 10 * temp_int)
     .. "&field2=" .. hum_int .. "." .. (humidity - 10 * hum_int)
+    .. "&field5=" .. node.heap()
+    .. "&field6=" .. tmr.now()
+    .. "&field7=" .. tmr.time()
+    .. "&field8=" .. timekeep
   http.get("api.thingspeak.com", url, function(res)
     --print("published:"..res)
     end)
@@ -150,6 +163,7 @@ local function main_loop()
   if timestamp >= next_sync then
     next_sync = timestamp + sync_interval
     sync_time()
+--    collectgarbage()
   elseif timestamp >= next_temp then
     next_temp = timestamp + temp_interval
     read_temp()
