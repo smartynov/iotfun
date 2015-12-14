@@ -2,7 +2,7 @@
 -- Written by Sergey Martynov http://martynov.info
 
 http = require("http-client")
---bmp180 = require("bmp180")
+bmp180 = require("bmp180")
 
 -- hardware settings
 local disp_sla = 0x3c
@@ -15,6 +15,7 @@ local timer_interval = 100 -- timer interval in ms
 local sync_interval = 90 -- sync time every n seconds
 local temp_interval = 3 -- update temperature/humidity/pressure every n seconds
 local send_interval = 60 -- send data to cloud every n seconds
+local debug_interval = 30 -- send debug data to cloud
 local draw_interval = 1 -- update display every second
 
 -- global variables
@@ -25,6 +26,7 @@ local epoch = 0 -- holds epoch of last sync
 local next_sync = 5 -- epoch time of next time sync
 local next_temp = temp_interval -- epoch time of next temp/hum/press reading 
 local next_send = send_interval -- epoch time of next temp/hum/press sending 
+local next_debug = debug_interval -- epoch time of next temp/hum/press sending 
 local next_draw = draw_interval -- epoch time of next display update
 local tmr_prev = 0
 local temperature = 0
@@ -33,6 +35,12 @@ local pressure = 0
 local temperature2 = 0
 local disp
 
+local timediff = 0
+local dht_oks = 0
+local dht_errs = 0
+local dht_sum_oks = 0
+local dht_sum_errs = 0
+
 
 local function sync_time()
   --print("sync()")
@@ -40,17 +48,11 @@ local function sync_time()
   http.get("www.timeapi.org","/z/now?\\s", function(res)
     res = tonumber(res)
     if res ~= nil and res > 1444444444 then -- constant equals some past epoch
-      local timediff = timestamp - res
+      timediff = timestamp - res
       if timediff > 1000 or timediff < -1000 then
         epoch = res
         timekeep = 0
         next_sync = epoch + sync_interval
-      else
-        local url = "/update?key=KZ6YC9VGXFCABF06"
-          .. "&field1=" .. timediff
-        http.get("api.thingspeak.com", url, function(res)
-          --print("published:"..res)
-          end)
       end
       --print("sync: epoch="..epoch)
     end
@@ -75,8 +77,15 @@ local function read_temp()
     temperature = 10 * t + td / 100
     humidity    = 10 * h + hd / 100
     --print("read_temp: temperature="..temperature.." humidity="..humidity)
+    dht_oks = dht_oks + 1
+    dht_errs = 0
+    dht_sum_oks = dht_sum_oks + 1
+  else
+    dht_oks = 0
+    dht_errs = dht_errs + 1
+    dht_sum_errs = dht_sum_errs + 1
   end
---[[
+---[[
   bmp180.read(3) -- oversampling=3, i.e. 8 measurements
   pressure = bmp180.getPressure()
   temperature2 = bmp180.getTemperature()
@@ -87,25 +96,42 @@ end
 local function send_temp()
   --print("send_temp()")
   if temperature == 0 and humidity == 0 then return nil end
-  local temp_int = temperature / 10
-  local hum_int = humidity / 10
   local url = "/update?key=DQWUD59A3V9HXAYC"
-    .. "&field1=" .. temp_int .. "." .. (temperature - 10 * temp_int)
-    .. "&field2=" .. hum_int .. "." .. (humidity - 10 * hum_int)
-    .. "&field5=" .. node.heap()
-    .. "&field6=" .. tmr.now()
-    .. "&field7=" .. tmr.time()
-    .. "&field8=" .. timekeep
+    .. "&field1="..(temperature/10).."."..(temperature%10)
+    .. "&field2="..(humidity/10).. "."..(humidity%10)
+    .. "&field3="..(pressure/100).."."..(temperature%100)
+    .. "&field4="..(temperature2/10).."."..(temperature2%10)
+    .. "&field5="..node.heap()
+    .. "&field6="..tmr.now()
+    .. "&field7="..tmr.time()
+    .. "&field8="..timekeep
+  --print(url)
+  http.get("api.thingspeak.com", url, function(res)
+    --print("published:"..res)
+    end)
+end
+
+local function send_debug()
+  --print("send_debug()")
+  local url = "/update?key=KZ6YC9VGXFCABF06"
+    .. "&field1="..timediff
+    .. "&field2="..dht_oks
+    .. "&field3="..dht_errs
+    .. "&field4="..dht_sum_oks
+    .. "&field5="..dht_sum_errs
+    .. "&field8="..timekeep
+  --print(url)
   http.get("api.thingspeak.com", url, function(res)
     --print("published:"..res)
     end)
 end
 
 
+
 local function init()
   i2c.setup(0, sda_pin, scl_pin, i2c.SLOW)
 
-  --bmp180.init(sda_pin, scl_pin)
+  bmp180.init(sda_pin, scl_pin)
 
   disp = u8g.ssd1306_128x64_i2c(disp_sla)
   disp:setFont(u8g.font_6x10)
@@ -123,19 +149,21 @@ local function disp_draw()
   local s = ts % 60
   local time_str = string.format("%02u:%02u:%02u", h, m, s)
   -- prepare temp and humidity as strings
-  local temp_str = (temperature / 10).."."..(temperature % 10)..string.char(176).."C"
-  local hum_str = (humidity / 10).."%"
-  --local press_str = (pressure / 100).." hPa = "..(p * 75 / 10000).."."..((p * 75 % 10000) / 1000).." mmHg"
+  local temp_str = (temperature/10).."."..(temperature%10)..string.char(176).."C"
+  local hum_str = (humidity/10).."%"
+  local press_str = (pressure/100).." hPa"
   -- draw on screen
   disp:firstPage()
   repeat
     tmr.wdclr()
     disp:setScale2x2()
+    --disp:setFont(u8g.font_10x20)
     disp:drawStr(5, 5, time_str)
     disp:undoScale()
+    --disp:setFont(u8g.font_6x10)
     disp:drawStr(10, 38, temp_str)
     disp:drawStr(80, 38, hum_str)
-    --disp:drawStr(30, 52, press_str)
+    disp:drawStr(38, 51, press_str)
   until disp:nextPage() == false
 end
 
@@ -170,6 +198,9 @@ local function main_loop()
   elseif timestamp >= next_send then
     next_send = timestamp + send_interval
     send_temp()
+  elseif timestamp >= next_debug then
+    next_debug = timestamp + debug_interval
+    send_debug()
   elseif timestamp >= next_draw then
     next_draw = timestamp + draw_interval
     disp_draw()
