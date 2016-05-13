@@ -4,7 +4,7 @@
 local fadeInTime = 2700 -- ms to turn light on
 local fadeOutTime = 9100 -- ms to turn light off
 local fadeStep = 35 -- fade step in ms
-local watchStep = 590 -- PIR watch step in ms
+local watchStep = 470 -- PIR watch step in ms
 local sendStep = 60*1000 -- send data each ms
 
 -- constants
@@ -185,7 +185,6 @@ tmr.alarm(1, watchStep, tmr.ALARM_AUTO, function()
   maxPower = calcMaxPower(t)
   colorTemp = calcColorTemp(t)
   setPower()
-  updateData()
   --print("maxPower="..maxPower.."; colorTemp="..colorTemp.."; temperature="..tostring(temperature).."; illuminance="..tostring(illuminance))
   --print("PIR="..PIR.."; t="..t.."; lastMotion="..lastMotion.."; curPower="..curPower.."; state="..state)
 end)
@@ -194,6 +193,7 @@ end)
 -- collect data and send to cloud
 tmr.alarm(3, sendStep, tmr.ALARM_AUTO, function()
   print("send data to cloud")
+  updateData()
   sendData()
 end)
 
