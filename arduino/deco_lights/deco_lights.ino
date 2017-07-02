@@ -8,20 +8,23 @@
 
 // number of LEDs (NeoPixels) in your strip
 // (please note that you need 3 bytes of RAM available for each pixel)
-#define NUMPIXELS   30
+#define NUMPIXELS   60
 
 // max LED brightness (1 to 255) – start with low values!
 // (please note that high brightness requires a LOT of power)
-#define BRIGHTNESS  64
+#define BRIGHTNESS  50
 
 // increase to get narrow spots, decrease to get wider spots
 #define FOCUS       65
 
 // decrease to speed up, increase to slow down (it's not a delay actually)
-#define DELAY       4000
+#define DELAY       5000
 
 // set to 1 to display FPS rate
 #define DEBUG       0
+
+// if true, wrap color wave over the edge (used for circular stripes)
+#define WRAP        1
 
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
@@ -68,9 +71,9 @@ void loop() {
   m = m - 42.5*cos(m/552.0) - 6.5*cos(m/142.0);
 
   // recalculate position of each spot (measured on a scale of 0 to 1)
-  float posr = 0.5 + 0.55*sin(m*spdr);
-  float posg = 0.5 + 0.55*sin(m*spdg);
-  float posb = 0.5 + 0.55*sin(m*spdb);
+  float posr = 0.15 + 0.55*sin(m*spdr);
+  float posg = 0.5 + 0.65*sin(m*spdg);
+  float posb = 0.85 + 0.75*sin(m*spdb);
 
   // now iterate over each pixel and calculate it's color
   for (int i=0; i<NUMPIXELS; i++) {
@@ -81,7 +84,12 @@ void loop() {
     float dr = ppos-posr;
     float dg = ppos-posg;
     float db = ppos-posb;
- 
+#if WRAP
+    dr = dr - floor(dr + 0.5);
+    dg = dg - floor(dg + 0.5);
+    db = db - floor(db + 0.5);
+#endif
+
     // set each color component from 0 to max BRIGHTNESS, according to Gaussian distribution
     strip.setPixelColor(i,
       constrain(BRIGHTNESS*myexp(-FOCUS*dr*dr),0,BRIGHTNESS),
